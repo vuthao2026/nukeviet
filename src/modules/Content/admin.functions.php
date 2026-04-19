@@ -33,9 +33,9 @@ if (defined('NV_IS_SPADMIN')) {
     $allow_func[] = 'config';
 }
 
-// Khởi tạo ContentRepository để lấy config admin
-// TUYỆT ĐỐI KHÔNG load tất cả Repository/Service ở file này.
-use NukeViet\Module\Content\Shared\ContentRepository;
+// Lấy cấu hình module từ biến hệ thống
+$config = $module_config[$module_name];
 
-$repo = new ContentRepository($db, NV_PREFIXLANG . '_' . $module_data, $nv_Cache, $module_name);
-$content_config = $repo->getConfig();
+// Khởi tạo danh sách bảng DB cho module — dùng chung cho mọi Repository
+use NukeViet\Module\Content\Shared\Tables;
+$tables = new Tables(NV_PREFIXLANG, $module_data);

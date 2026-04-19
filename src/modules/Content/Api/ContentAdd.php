@@ -11,10 +11,10 @@ namespace NukeViet\Module\Content\Api;
 
 use NukeViet\Api\Api;
 use NukeViet\Api\ApiResult;
-use NukeViet\Api\IApi;
-use NukeViet\Module\Content\Shared\ContentRepository;
-use NukeViet\Module\Content\Shared\ContentValidator;
-use NukeViet\Module\Content\Shared\ContentService;
+use NukeViet\Module\Content\Content\ContentRepository;
+use NukeViet\Module\Content\Content\ContentValidator;
+use NukeViet\Module\Content\Content\ContentService;
+use NukeViet\Module\Content\Shared\BaseApi;
 
 if (!defined('NV_ADMIN') or !defined('NV_MAINFILE')) {
     exit('Stop!!!');
@@ -24,10 +24,8 @@ if (!defined('NV_ADMIN') or !defined('NV_MAINFILE')) {
  * ContentAdd API - Thêm bài viết mới qua API
  * Cho phép các ứng dụng/site khác kết nối và đẩy nội dung bài viết
  */
-class ContentAdd implements IApi
+class ContentAdd extends BaseApi
 {
-    private $result;
-
     public static function getAdminLev()
     {
         return Api::ADMIN_LEV_MOD;
@@ -38,38 +36,32 @@ class ContentAdd implements IApi
         return 'content';
     }
 
-    public function setResultHander(ApiResult $result)
-    {
-        $this->result = $result;
-    }
-
     public function execute()
     {
-        global $db, $nv_Cache, $nv_Request, $nv_Lang, $admin_info;
+        global $nv_Request, $nv_Lang;
+        $this->bootstrap();
 
-        $module_name = Api::getModuleName();
-        $module_info = Api::getModuleInfo();
-        $module_data = $module_info['module_data'];
+        $admin_id = Api::getAdminId();
 
-        $repo = new ContentRepository(
-            $db,
-            NV_PREFIXLANG . '_' . $module_data,
-            $nv_Cache,
-            $module_name
+        $contentRepo = new ContentRepository(
+            $this->db,
+            $this->tables,
+            $this->cache,
+            $this->module_name
         );
 
-        $service = new ContentService($repo);
-        $moduleConfig = $repo->getConfig();
+
+        $service = new ContentService($contentRepo);
 
         // Parse request qua Service
         $data = $service->collectRequestData($nv_Request);
 
         // Chuẩn hóa dữ liệu qua Service
-        $data = $service->prepareSaveData($data, $moduleConfig);
+        $data = $service->prepareSaveData($data, $this->config, $this->module_upload);
 
         // Validate
         try {
-            $validator = new ContentValidator($repo);
+            $validator = new ContentValidator($contentRepo);
             $validator->validateSave($data);
         } catch (\InvalidArgumentException $e) {
             $this->result->setCode(ApiResult::CODE_UNKONW)
@@ -79,15 +71,15 @@ class ContentAdd implements IApi
 
         // Lưu qua Service
         $savedId = $service->saveContent(
-            $data, 
-            0, 
-            $module_name, 
-            $moduleConfig, 
-            $admin_info['admin_id'] ?? 0
+            $data,
+            0,
+            $this->module_name,
+            $this->config,
+            $admin_id
         );
 
         // Lấy entity vừa tạo để trả về
-        $entity = $repo->findById($savedId);
+        $entity = $contentRepo->findById($savedId);
 
         $this->result->set('item', $entity->toArray());
         $this->result->setSuccess();

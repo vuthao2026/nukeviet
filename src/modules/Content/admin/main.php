@@ -13,19 +13,23 @@ if (!defined('NV_IS_FILE_ADMIN')) {
     exit('Stop!!!');
 }
 
-use NukeViet\Module\Content\Shared\CatRepository;
-use NukeViet\Module\Content\Shared\ContentService;
+use NukeViet\Module\Content\Content\ContentRepository;
+use NukeViet\Module\Content\Content\ContentService;
+use NukeViet\Module\Content\Cat\CatRepository;
 
 $page_title = $nv_Lang->getModule('list');
-$service = new ContentService($repo);
+
+$contentRepo = new ContentRepository($db, $tables, $nv_Cache, $module_name);
+
+$service = new ContentService($contentRepo);
 
 // Filter theo chuyên mục
 $filter_catid = $nv_Request->get_int('catid', 'get', 0);
 
-$catRepo = new CatRepository($db, NV_PREFIXLANG . '_' . $module_data, $nv_Cache, $module_name);
+$catRepo = new CatRepository($db, $tables, $nv_Cache, $module_name);
 $cats_all = $catRepo->getAll();
 
-$_rows = $repo->getContentList($filter_catid, -1);
+$_rows = $contentRepo->getContentList($filter_catid, -1);
 $num = count($_rows);
 
 if ($num < 1) {
@@ -63,7 +67,7 @@ $tpl->registerPlugin('modifier', 'ddatetime', 'nv_datetime_format');
 $tpl->setTemplateDir(get_module_tpl_dir('main.tpl'));
 $tpl->assign('LANG', $nv_Lang);
 $tpl->assign('MODULE_NAME', $module_name);
-$tpl->assign('PCONFIG', $content_config);
+$tpl->assign('PCONFIG', $config);
 $tpl->assign('DATA', $array_row);
 $tpl->assign('CATS', $cat_map);
 $tpl->assign('FILTER_CATID', $filter_catid);

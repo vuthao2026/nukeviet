@@ -9,55 +9,38 @@
  * @see https://github.com/nukeviet The NukeViet CMS GitHub project
  */
 
-namespace NukeViet\Module\Content\Shared;
+namespace NukeViet\Module\Content\Content;
 
 if (!defined('NV_MAINFILE')) {
     exit('Stop!!!');
 }
 
 use PDO;
+use NukeViet\Module\Content\Shared\BaseRepository;
 
 /**
  * ContentRepository — Tầng truy vấn dữ liệu cho bài viết
  * Tập trung mọi SQL vào đây, Controller không viết SQL trực tiếp
  */
-class ContentRepository
+class ContentRepository extends BaseRepository
 {
-    use ConfigRepositoryTrait;
-
-    private PDO $db;
-    private string $table;
-    private $cache;
-    private string $module_name;
-
-    public function __construct(PDO $db, string $table, $cache, string $module_name)
+    protected function entityClass(): string
     {
-        $this->db = $db;
-        $this->table = $table;
-        $this->cache = $cache;
-        $this->module_name = $module_name;
+        return ContentEntity::class;
     }
 
-    /**
-     * Helper: fetchAll + map thành Entity[]
-     * Gom logic FETCH_ASSOC + fromArray() vào 1 chỗ duy nhất
-     */
-    private function fetchEntities(\PDOStatement $stmt): array
+    public function saveConfig(array $config): void
     {
-        return array_map([ContentEntity::class, 'fromArray'], $stmt->fetchAll(PDO::FETCH_ASSOC));
-    }
-
-    /**
-     * Xác định PDO type cho 1 cột dựa theo khai báo Entity.
-     * Tránh dùng is_int($value) vì giá trị từ Request/string-cast có thể không đáng tin.
-     */
-    private function pdoType(string $field): int
-    {
-        static $intFields = null;
-        if ($intFields === null) {
-            $intFields = ContentEntity::getIntColumns();
+        $sth = $this->db->prepare("UPDATE " . NV_CONFIG_GLOBALTABLE . " SET config_value = :config_value WHERE lang = '" . NV_LANG_DATA . "' AND module = :module_name AND config_name = :config_name");
+        $sth->bindValue(':module_name', $this->module_name, PDO::PARAM_STR);
+        foreach ($config as $config_name => $config_value) {
+            $sth->bindValue(':config_name', $config_name, PDO::PARAM_STR);
+            $sth->bindValue(':config_value', $config_value, PDO::PARAM_STR);
+            $sth->execute();
         }
-        return isset($intFields[$field]) ? PDO::PARAM_INT : PDO::PARAM_STR;
+
+        $this->cache->delMod('settings');
+        $this->cache->delMod($this->module_name);
     }
 
     /**
@@ -65,7 +48,7 @@ class ContentRepository
      */
     public function findById(int $id): ?ContentEntity
     {
-        $stmt = $this->db->prepare('SELECT * FROM ' . $this->table . ' WHERE id = :id');
+        $stmt = $this->db->prepare('SELECT * FROM ' . $this->tables->content . ' WHERE id = :id');
         $stmt->bindValue(':id', $id, PDO::PARAM_INT);
         $stmt->execute();
         $data = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -78,7 +61,7 @@ class ContentRepository
      */
     public function findByAlias(string $alias): ?ContentEntity
     {
-        $stmt = $this->db->prepare('SELECT * FROM ' . $this->table . ' WHERE alias = :alias');
+        $stmt = $this->db->prepare('SELECT * FROM ' . $this->tables->content . ' WHERE alias = :alias');
         $stmt->bindValue(':alias', $alias, PDO::PARAM_STR);
         $stmt->execute();
         $data = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -91,7 +74,7 @@ class ContentRepository
      */
     public function countActive(int $catid = 0): int
     {
-        $sql = 'SELECT COUNT(*) FROM ' . $this->table . ' WHERE status = 1';
+        $sql = 'SELECT COUNT(*) FROM ' . $this->tables->content . ' WHERE status = 1';
         if ($catid > 0) {
             $sql .= ' AND catid = :catid';
             $stmt = $this->db->prepare($sql);
@@ -108,7 +91,7 @@ class ContentRepository
      */
     public function countByCatid(int $catid): int
     {
-        $stmt = $this->db->prepare('SELECT COUNT(*) FROM ' . $this->table . ' WHERE catid = :catid');
+        $stmt = $this->db->prepare('SELECT COUNT(*) FROM ' . $this->tables->content . ' WHERE catid = :catid');
         $stmt->bindValue(':catid', $catid, PDO::PARAM_INT);
         $stmt->execute();
         return (int) $stmt->fetchColumn();
@@ -125,7 +108,7 @@ class ContentRepository
      */
     public function getContentList(int $catid = 0, int $status = 1, int $page = 1, int $per_page = 0): array
     {
-        $sql = 'SELECT * FROM ' . $this->table;
+        $sql = 'SELECT * FROM ' . $this->tables->content;
         $where = [];
 
         if ($status >= 0) {
@@ -164,7 +147,7 @@ class ContentRepository
      */
     public function isAliasExists(string $alias, int $excludeId = 0): bool
     {
-        $sql = 'SELECT COUNT(*) FROM ' . $this->table . ' WHERE alias = :alias';
+        $sql = 'SELECT COUNT(*) FROM ' . $this->tables->content . ' WHERE alias = :alias';
         if ($excludeId > 0) {
             $sql .= ' AND id != :id';
         }
@@ -195,7 +178,7 @@ class ContentRepository
                 $fields[] = $key . ' = :' . $key;
                 $params[':' . $key] = [$value, $this->pdoType($key)];
             }
-            $stmt = $this->db->prepare('UPDATE ' . $this->table . ' SET ' . implode(', ', $fields) . ' WHERE id = :id');
+            $stmt = $this->db->prepare('UPDATE ' . $this->tables->content . ' SET ' . implode(', ', $fields) . ' WHERE id = :id');
             foreach ($params as $k => $v) {
                 $stmt->bindValue($k, $v[0], $v[1]);
             }
@@ -207,7 +190,7 @@ class ContentRepository
         $columns = array_keys($data);
         $placeholders = array_map(fn($k) => ':' . $k, $columns);
         $stmt = $this->db->prepare(
-            'INSERT INTO ' . $this->table . ' (' . implode(', ', $columns) . ') VALUES (' . implode(', ', $placeholders) . ')'
+            'INSERT INTO ' . $this->tables->content . ' (' . implode(', ', $columns) . ') VALUES (' . implode(', ', $placeholders) . ')'
         );
         foreach ($data as $key => $value) {
             $stmt->bindValue(':' . $key, $value, $this->pdoType($key));
@@ -221,7 +204,7 @@ class ContentRepository
      */
     public function delete(int $id, string $commentTable = ''): bool
     {
-        $stmt = $this->db->prepare('DELETE FROM ' . $this->table . ' WHERE id = :id');
+        $stmt = $this->db->prepare('DELETE FROM ' . $this->tables->content . ' WHERE id = :id');
         $stmt->bindValue(':id', $id, PDO::PARAM_INT);
         $result = $stmt->execute();
 
@@ -245,7 +228,7 @@ class ContentRepository
             return -1;
         }
         $newStatus = $row->status ? 0 : 1;
-        $stmt = $this->db->prepare('UPDATE ' . $this->table . ' SET status = :status WHERE id = :id');
+        $stmt = $this->db->prepare('UPDATE ' . $this->tables->content . ' SET status = :status WHERE id = :id');
         $stmt->bindValue(':status', $newStatus, PDO::PARAM_INT);
         $stmt->bindValue(':id', $id, PDO::PARAM_INT);
         $stmt->execute();
@@ -259,7 +242,7 @@ class ContentRepository
      */
     public function reorderWeight(int $movedId = 0, int $newWeight = 0): void
     {
-        $sql = 'SELECT id, weight FROM ' . $this->table;
+        $sql = 'SELECT id, weight FROM ' . $this->tables->content;
         $params = [];
         if ($movedId > 0) {
             $sql .= ' WHERE id != :id';
@@ -302,9 +285,9 @@ class ContentRepository
         }
 
         $this->db->exec(
-            'UPDATE ' . $this->table
-            . ' SET weight = CASE id ' . implode(' ', $cases) . ' END'
-            . ' WHERE id IN (' . implode(',', $ids) . ')'
+            'UPDATE ' . $this->tables->content
+                . ' SET weight = CASE id ' . implode(' ', $cases) . ' END'
+                . ' WHERE id IN (' . implode(',', $ids) . ')'
         );
     }
 
@@ -316,12 +299,12 @@ class ContentRepository
     {
         if ($catid > 0) {
             $stmt = $this->db->prepare(
-                'SELECT * FROM ' . $this->table . ' WHERE status = 1 AND id != :id AND catid = :catid ORDER BY weight ASC LIMIT :limit'
+                'SELECT * FROM ' . $this->tables->content . ' WHERE status = 1 AND id != :id AND catid = :catid ORDER BY weight ASC LIMIT :limit'
             );
             $stmt->bindValue(':catid', $catid, PDO::PARAM_INT);
         } else {
             $stmt = $this->db->prepare(
-                'SELECT * FROM ' . $this->table . ' WHERE status = 1 AND id != :id ORDER BY weight ASC LIMIT :limit'
+                'SELECT * FROM ' . $this->tables->content . ' WHERE status = 1 AND id != :id ORDER BY weight ASC LIMIT :limit'
             );
         }
         $stmt->bindValue(':id', $currentId, PDO::PARAM_INT);
@@ -335,7 +318,7 @@ class ContentRepository
      */
     public function incrementHits(int $id): void
     {
-        $stmt = $this->db->prepare('UPDATE ' . $this->table . ' SET hitstotal = hitstotal + 1 WHERE id = :id');
+        $stmt = $this->db->prepare('UPDATE ' . $this->tables->content . ' SET hitstotal = hitstotal + 1 WHERE id = :id');
         $stmt->bindValue(':id', $id, PDO::PARAM_INT);
         $stmt->execute();
     }
@@ -345,7 +328,7 @@ class ContentRepository
      */
     public function getMaxId(): int
     {
-        $stmt = $this->db->query('SELECT MAX(id) FROM ' . $this->table);
+        $stmt = $this->db->query('SELECT MAX(id) FROM ' . $this->tables->content);
         return (int) $stmt->fetchColumn();
     }
 
@@ -354,7 +337,7 @@ class ContentRepository
      */
     public function getMaxWeight(): int
     {
-        $stmt = $this->db->query('SELECT MAX(weight) FROM ' . $this->table);
+        $stmt = $this->db->query('SELECT MAX(weight) FROM ' . $this->tables->content);
         return (int) $stmt->fetchColumn();
     }
 
@@ -363,7 +346,7 @@ class ContentRepository
      */
     public function incrementOthersWeight(): void
     {
-        $this->db->prepare('UPDATE ' . $this->table . ' SET weight = weight + 1')->execute();
+        $this->db->prepare('UPDATE ' . $this->tables->content . ' SET weight = weight + 1')->execute();
     }
 
     /**
@@ -392,19 +375,11 @@ class ContentRepository
         }
 
         $this->db->exec(
-            'UPDATE ' . $this->table
-            . ' SET weight = CASE id ' . implode(' ', $cases) . ' END'
-            . ' WHERE id IN (' . implode(',', $ids) . ')'
+            'UPDATE ' . $this->tables->content
+                . ' SET weight = CASE id ' . implode(' ', $cases) . ' END'
+                . ' WHERE id IN (' . implode(',', $ids) . ')'
         );
 
         return true;
-    }
-
-    /**
-     * Xóa cache module
-     */
-    public function invalidateCache(): void
-    {
-        $this->cache->delMod($this->module_name);
     }
 }

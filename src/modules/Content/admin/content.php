@@ -13,9 +13,11 @@ if (!defined('NV_IS_FILE_ADMIN')) {
     exit('Stop!!!');
 }
 
-use NukeViet\Module\Content\Shared\ContentService;
-use NukeViet\Module\Content\Shared\CatRepository;
-use NukeViet\Module\Content\Shared\CatService;
+use NukeViet\Module\Content\Content\ContentRepository;
+use NukeViet\Module\Content\Content\ContentService;
+use NukeViet\Module\Content\Content\ContentValidator;
+use NukeViet\Module\Content\Cat\CatRepository;
+use NukeViet\Module\Content\Cat\CatService;
 use NukeViet\Module\Content\Shared\SchemaHelper;
 
 // Kiểm tra dung lượng upload
@@ -26,9 +28,11 @@ if (!empty($global_config['over_capacity']) and !defined('NV_IS_GODADMIN')) {
     include NV_ROOTDIR . '/includes/footer.php';
 }
 
+$contentRepo = new ContentRepository($db, $tables, $nv_Cache, $module_name);
+
 // File này cần dùng tới Cat + Content Service nên khởi tạo tận nơi
-$service = new ContentService($repo);
-$catRepo = new CatRepository($db, NV_PREFIXLANG . '_' . $module_data, $nv_Cache, $module_name);
+$service = new ContentService($contentRepo);
+$catRepo = new CatRepository($db, $tables, $nv_Cache, $module_name);
 $catService = new CatService($catRepo);
 
 $id = $nv_Request->get_int('id', 'post,get', 0);
@@ -36,7 +40,7 @@ $copy = $nv_Request->get_int('copy', 'get,post', 0);
 $entity = null;
 
 if ($id) {
-    $entity = $repo->findById($id);
+    $entity = $contentRepo->findById($id);
     if (empty($entity)) {
         nv_redirect_location(NV_BASE_ADMINURL . 'index.php?' . NV_LANG_VARIABLE . '=' . NV_LANG_DATA
             . '&' . NV_NAME_VARIABLE . '=' . $module_name);
@@ -69,34 +73,19 @@ if ($nv_Request->isset_request('checkss', 'post')) {
 
     $row = $service->collectRequestData($nv_Request);
 
-    // Xử lý các trường đặc thù Admin
-    if (!empty($row['layout_func']) and !in_array('layout.' . $row['layout_func'] . '.tpl', $layout_array, true)) {
-        $row['layout_func'] = '';
-    }
-
-    $_groups_post = $nv_Request->get_array('activecomm', 'post', []);
-    $row['activecomm'] = !empty($_groups_post) ? implode(',', nv_groups_post(array_intersect($_groups_post, array_keys($groups_list)))) : '';
-
-    if (!array_key_exists($row['schema_type'], \NukeViet\Module\Content\Shared\SchemaHelper::$schema_types)) {
-        $row['schema_type'] = 'newsarticle';
-    }
-    if ($row['schema_type'] == 'webpage' and empty($row['schema_about'])) {
-        $row['schema_about'] = 'Organization';
-    }
-
-    // Chuẩn hóa dữ liệu (alias, keywords, image) qua Service — DRY
-    $row = $service->prepareSaveData($row, $content_config, $module_upload);
+    // Chuẩn hóa toàn bộ dữ liệu (alias, keywords, image, layout, schema, activecomm...) qua Service — DRY
+    $row = $service->prepareSaveData($row, $config, $module_upload, $layout_array);
 
     // Luồng chuẩn: Controller nhận Request -> Đóng gói gửi Validator -> Gọi Service -> Đưa ra Template
     try {
         $saveId = ($id and !$copy) ? $id : 0;
-        $validator = new \NukeViet\Module\Content\Shared\ContentValidator($repo);
+        $validator = new ContentValidator($contentRepo);
 
         // 1. Kiểm lỗi logic nghiệp vụ
         $validator->validateSave($row, $saveId);
 
         // 2. Chuyển cho Service chuyên lưu trữ DB (Đã được giao quản lý hệ thống weight, timestamps)
-        $savedId = $service->saveContent($row, $saveId, $module_name, $content_config, $admin_info['admin_id']);
+        $savedId = $service->saveContent($row, $saveId, $module_name, $config, $admin_info['admin_id']);
 
         // 3. Log hành động
         nv_insert_logs(NV_LANG_DATA, $module_name, $saveId ? 'Edit' : 'Add', 'ID: ' . $savedId, $admin_info['userid']);
@@ -117,8 +106,9 @@ if ($nv_Request->isset_request('checkss', 'post')) {
             }
         }
         nv_jsonOutput($respon);
-    } catch (\Exception $e) {
-        $respon['mess'] = $e->getMessage();
+    } catch (\Throwable $e) {
+        trigger_error($e);
+        $respon['mess'] = $nv_Lang->getGlobal('error_system');
         nv_jsonOutput($respon);
     }
 
@@ -128,7 +118,7 @@ if ($nv_Request->isset_request('checkss', 'post')) {
         . '&' . NV_NAME_VARIABLE . '=' . $module_name;
     nv_jsonOutput($respon);
 } elseif ($copy) {
-    $sourceEntity = $repo->findById($copy);
+    $sourceEntity = $contentRepo->findById($copy);
     if ($sourceEntity) {
         $row = $service->duplicateContentData($sourceEntity);
         $id = 0;
@@ -149,8 +139,8 @@ if ($nv_Request->isset_request('checkss', 'post')) {
         'hot_post' => 0,
         'layout_func' => '',
         'activecomm' => $module_config[$module_name]['setcomm'] ?? '',
-        'schema_type' => $content_config['schema_type'] ?? 'article',
-        'schema_about' => SchemaHelper::$schema_abouts[$content_config['schema_about'] ?? 'organization'] ?? 'Organization'
+        'schema_type' => $config['schema_type'] ?? 'article',
+        'schema_about' => SchemaHelper::$schema_abouts[$config['schema_about'] ?? 'organization'] ?? 'Organization'
     ];
 }
 

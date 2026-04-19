@@ -20,19 +20,21 @@ if (!defined('NV_IS_MOD_CONTENT')) {
     exit('Stop!!!');
 }
 
-use NukeViet\Module\Content\Shared\ContentService;
+use NukeViet\Module\Content\Content\ContentRepository;
+use NukeViet\Module\Content\Content\ContentService;
+use NukeViet\Module\Content\Cat\CatRepository;
+use NukeViet\Module\Content\Cat\CatService;
 use NukeViet\Module\Content\Shared\SchemaHelper;
-use NukeViet\Module\Content\Shared\CatRepository;
-use NukeViet\Module\Content\Shared\CatService;
 
-$service = new ContentService($repo);
-$catService = new CatService(new CatRepository($db, NV_PREFIXLANG . '_' . $module_data, $nv_Cache, $module_name));
+$contentRepo = new ContentRepository($db, $tables, $nv_Cache, $module_name);
+
+$service = new ContentService($contentRepo);
+$catService = new CatService(new CatRepository($db, $tables, $nv_Cache, $module_name));
 $page_url = $base_url;
 
-try {
-    // 1. Nhận Request — Service xử lý URL parsing
-    $viewtype = (int) ($content_config['viewtype'] ?? 0);
-    $route = $service->resolveRoute($array_op, $viewtype);
+// 1. Nhận Request — Service xử lý URL parsing
+$viewtype = (int) ($config['viewtype'] ?? 0);
+$route = $service->resolveRoute($array_op, $viewtype);
 
 if ($route['mode'] === 'none') {
     // viewtype = 2: không hiển thị gì
@@ -166,9 +168,9 @@ if ($route['mode'] === 'none') {
 
     // Bài liên quan
     $other_links = [];
-    $related_articles = (int) ($content_config['related_articles'] ?? 0);
+    $related_articles = (int) ($config['related_articles'] ?? 0);
     if ($related_articles) {
-        $related = $repo->getRelated($id, $related_articles, $rowdetail->catid);
+        $related = $contentRepo->getRelated($id, $related_articles, $rowdetail->catid);
         foreach ($related as $other) {
             $other->link = $base_url . '&amp;' . NV_OP_VARIABLE . '=' . $other->alias . $global_config['rewrite_exturl'];
             $other_links[$other->id] = $other;
@@ -194,7 +196,7 @@ if ($route['mode'] === 'none') {
     $time_set = $nv_Request->get_int($module_data . '_' . $op . '_' . $id, 'session');
     if (empty($time_set)) {
         $nv_Request->set_Session($module_data . '_' . $op . '_' . $id, NV_CURRENTTIME);
-        $repo->incrementHits($id);
+        $contentRepo->incrementHits($id);
     }
 
     // Hook
@@ -219,7 +221,7 @@ if ($route['mode'] === 'none') {
 
     $page_title = $module_info['site_title'];
     $key_words = $module_info['keywords'];
-    $per_page = (int) ($content_config['per_page'] ?? 20);
+    $per_page = (int) ($config['per_page'] ?? 20);
 
     // 2. Gọi Service
     $result = $service->getList($page, $per_page);
@@ -243,14 +245,6 @@ if ($route['mode'] === 'none') {
 
     // 3. Đẩy sang View
     $contents = nv_content_list($array_data, $generate_page);
-}
-
-} catch (\Exception $e) {
-    if ($e->getCode() == 404 || str_contains($e->getMessage(), 'không tìm thấy')) {
-        nv_error404();
-    } else {
-        trigger_error($e->getMessage());
-    }
 }
 
 include NV_ROOTDIR . '/includes/header.php';
